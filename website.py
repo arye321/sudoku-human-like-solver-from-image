@@ -14,6 +14,8 @@ from image_processing import get_grid_dimensions, filter_non_square_contours, so
 from csp import csp, create_empty_board, BLANK_STATE
 from digits_classifier import sudoku_cells_reduce_noise
 from PIL import Image
+from sudoku.solver_util import SolverUtil
+
 
 device = "cpu"
 model = MNISTClassifier().to(device)
@@ -302,7 +304,7 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-def prosses_img(img):
+def process_img(img):
     image = img
     if image.shape[1] > 700:
         image = imutils.resize(image, width=700)
@@ -346,7 +348,7 @@ def prosses_img(img):
                 cnts = get_cells_from_9_main_cells(new_cnts)
             else:
                 # Unable to identify main cells
-                raise Exception(f"Unable to extract grid cells properly")
+                return "-1"
     
                 
 
@@ -395,7 +397,16 @@ def prosses_img(img):
     for row in board:
         for digit in row:
             sudoku_string += str(digit)
-    return sudoku_string
+    # return sudoku_string
+    
+    solver ="Strategic"
+    soving_steps = SolverUtil.solve_puzzle(
+            sudoku_string,
+            verbose=False,
+            description='xd',
+            solver_type=solver,
+        )
+    return (sudoku_string,soving_steps['inserted_values'])
 
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
@@ -408,21 +419,22 @@ def upload_file():
         # Check if file was submitted
         if 'file' not in request.files:
             flash('No file selected!')
-            return redirect(request.url)
+            return redirect(url_for('upload_file'))
         
         file = request.files['file']
         
         # Check if file was actually selected
         if file.filename == '':
             flash('No file selected!')
-            return redirect(request.url)
+            return redirect(url_for('upload_file'))
         
         if file and allowed_file(file.filename):
             # Validate that it's actually an image
             file_ext = validate_image(file.stream)
             if not file_ext:
                 flash('Invalid image file! Please upload a valid image.')
-                return redirect(request.url)
+                return redirect(url_for('upload_file'))
+
             
             try:
                 # Load image directly into OpenCV without saving to disk
@@ -431,15 +443,18 @@ def upload_file():
                 
                 if cv_image is None:
                     flash('Could not process image file!')
-                    return redirect(request.url)
+                    return redirect(url_for('upload_file'))
+
                 
                 # Process the image to extract sudoku
-                sudoku_string = prosses_img(cv_image)
-                sudoku_board = format_sudoku_board(sudoku_string)
+                sudoku_string,solving_steps = process_img(cv_image)
+                if sudoku_string != "-1":
+                    sudoku_board = format_sudoku_board(sudoku_string)
                 
                 if sudoku_board is None:
                     flash('Could not extract valid sudoku board from image!')
-                    return redirect(request.url)
+                    return redirect(url_for('upload_file'))
+
                 
                 # Get image dimensions
                 height, width, channels = cv_image.shape
@@ -451,11 +466,11 @@ def upload_file():
                 
             except Exception as e:
                 flash(f'Error processing image: {str(e)}')
-                return redirect(request.url)
+                return redirect(url_for('upload_file'))
             
         else:
             flash('Invalid file type! Please upload an image file (PNG, JPG, JPEG, GIF, BMP, WEBP).')
-            return redirect(request.url)
+            return redirect(url_for('upload_file'))
     
     return render_template_string(HTML_TEMPLATE, 
                                 sudoku_board=sudoku_board,
