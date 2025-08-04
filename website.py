@@ -125,6 +125,7 @@ HTML_TEMPLATE = '''
             cursor: pointer;
             transition: transform 0.2s;
             margin-top: 20px;
+            position: relative;
         }
         .submit-btn:hover:not(:disabled) {
             transform: translateY(-2px);
@@ -132,6 +133,24 @@ HTML_TEMPLATE = '''
         .submit-btn:disabled {
             background: #a0aec0;
             cursor: not-allowed;
+        }
+        .loading {
+            display: none;
+            margin-left: 10px;
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #48bb78;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         .result {
             margin-top: 30px;
@@ -178,6 +197,7 @@ HTML_TEMPLATE = '''
             font-weight: bold;
             background: white;
             color: #2d3748;
+            transition: all 0.3s ease;
         }
         .sudoku-cell.empty {
             background: #f7fafc;
@@ -188,6 +208,45 @@ HTML_TEMPLATE = '''
         }
         .sudoku-cell.thick-bottom {
             border-bottom: 2px solid #2d3748;
+        }
+        .sudoku-cell.hint {
+            background: #ffd700 !important;
+            animation: pulse-hint 1s ease-in-out;
+        }
+        .sudoku-cell.solved-hint {
+            background: #90EE90 !important;
+            animation: pulse-solved 1s ease-in-out;
+        }
+        @keyframes pulse-hint {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        @keyframes pulse-solved {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .hint-controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .hint-btn {
+            background: linear-gradient(135deg, #ed8936, #dd6b20);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin: 0 10px;
+        }
+        .hint-btn:hover {
+            transform: translateY(-2px);
+        }
+        .hint-btn:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+            transform: none;
         }
         .sudoku-string {
             margin: 15px 0;
@@ -213,7 +272,7 @@ HTML_TEMPLATE = '''
             {% endif %}
         {% endwith %}
         
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data" id="upload-form">
             <div class="upload-section">
                 <h3>Select a Sudoku image to extract</h3>
                 <p>Maximum file size: 5MB<br>
@@ -229,7 +288,11 @@ HTML_TEMPLATE = '''
                 
                 <br>
                 <button type="submit" id="submit-btn" class="submit-btn" disabled>
-                    🚀 Extract Sudoku Board
+                    <span id="btn-text">🚀 Extract Sudoku Board</span>
+                    <div class="loading" id="loading">
+                        <div class="spinner"></div>
+                        Processing...
+                    </div>
                 </button>
             </div>
         </form>
@@ -245,7 +308,8 @@ HTML_TEMPLATE = '''
                     <div class="sudoku-cell 
                         {% if sudoku_board[row_idx][col_idx] == 0 %}empty{% endif %}
                         {% if col_idx in [2, 5] %}thick-right{% endif %}
-                        {% if row_idx in [2, 5] %}thick-bottom{% endif %}">
+                        {% if row_idx in [2, 5] %}thick-bottom{% endif %}"
+                        id="cell-{{ row_idx }}-{{ col_idx }}">
                         {% if sudoku_board[row_idx][col_idx] != 0 %}
                             {{ sudoku_board[row_idx][col_idx] }}
                         {% else %}
@@ -256,6 +320,13 @@ HTML_TEMPLATE = '''
                 </div>
                 {% endfor %}
             </div>
+            
+            {% if solving_steps %}
+            <div class="hint-controls">
+                <button id="hint-btn" class="hint-btn" onclick="toggleHint()">💡 Show Hint</button>
+                <button id="reset-btn" class="hint-btn" onclick="resetBoard()" style="background: linear-gradient(135deg, #e53e3e, #c53030);">🔄 Reset Board</button>
+            </div>
+            {% endif %}
             
             {% if sudoku_string %}
             <div class="sudoku-string">
@@ -274,6 +345,17 @@ HTML_TEMPLATE = '''
     </div>
 
     <script>
+        // Store solving steps and current hint index
+        {% if solving_steps %}
+        const solvingSteps = {{ solving_steps|tojson }};
+        console.log('Solving steps:', solvingSteps);
+        {% else %}
+        const solvingSteps = [];
+        {% endif %}
+        
+        let currentHintIndex = 0;
+        let showingHint = false;
+        
         function showFileInfo(input) {
             const fileInfo = document.getElementById('file-info');
             const submitBtn = document.getElementById('submit-btn');
@@ -298,6 +380,120 @@ HTML_TEMPLATE = '''
                 fileInfo.style.display = 'none';
                 submitBtn.disabled = true;
             }
+        }
+        
+        // Handle form submission with loading indicator
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            const submitBtn = document.getElementById('submit-btn');
+            const btnText = document.getElementById('btn-text');
+            const loading = document.getElementById('loading');
+            
+            // Show loading state
+            btnText.style.display = 'none';
+            loading.style.display = 'inline-block';
+            submitBtn.disabled = true;
+        });
+        
+        function toggleHint() {
+            console.log('Toggle hint called, currentHintIndex:', currentHintIndex, 'total steps:', solvingSteps.length);
+            
+            if (currentHintIndex >= solvingSteps.length) {
+                document.getElementById('hint-btn').textContent = '🎉 All Hints Complete!';
+                document.getElementById('hint-btn').disabled = true;
+                return;
+            }
+            
+            const hintBtn = document.getElementById('hint-btn');
+            const currentStep = solvingSteps[currentHintIndex];
+            console.log('Current step:', currentStep);
+            
+            // Handle different data formats
+            let row, col, value;
+            if (Array.isArray(currentStep)) {
+                row = currentStep[0];
+                col = currentStep[1];
+                value = currentStep[2];
+            } else if (typeof currentStep === 'object') {
+                // If it's an object, try different property names
+                row = currentStep.row || currentStep.r || currentStep[0];
+                col = currentStep.col || currentStep.c || currentStep[1];
+                value = currentStep.value || currentStep.val || currentStep.v || currentStep[2];
+            } else {
+                console.error('Unexpected step format:', currentStep);
+                return;
+            }
+            
+            console.log('Parsed values - row:', row, 'col:', col, 'value:', value);
+            
+            const cellId = `cell-${row}-${col}`;
+            const cell = document.getElementById(cellId);
+            
+            if (!cell) {
+                console.error('Cell not found:', cellId);
+                return;
+            }
+            
+            if (!showingHint) {
+                // Show hint (highlight the cell)
+                cell.classList.add('hint');
+                cell.classList.remove('solved-hint');
+                hintBtn.textContent = `✨ Solve Hint `;
+                showingHint = true;
+                console.log('Showing hint for cell:', cellId);
+            } else {
+                // Solve hint (show the value)
+                cell.classList.remove('hint');
+                cell.classList.add('solved-hint');
+                cell.textContent = value;
+                cell.classList.remove('empty');
+                
+                currentHintIndex++;
+                showingHint = false;
+                
+                if (currentHintIndex < solvingSteps.length) {
+                    hintBtn.textContent = '💡 Show Hint';
+                } else {
+                    hintBtn.textContent = '🎉 All Hints Complete!';
+                    hintBtn.disabled = true;
+                }
+                
+                console.log('Solved hint for cell:', cellId, 'with value:', value);
+                
+                // Remove the solved-hint class after animation
+                setTimeout(() => {
+                    cell.classList.remove('solved-hint');
+                }, 1000);
+            }
+        }
+        
+        function resetBoard() {
+            // Reset all cells to original state
+            const originalBoard = {{ sudoku_board|tojson }};
+            
+            for (let row = 0; row < 9; row++) {
+                for (let col = 0; col < 9; col++) {
+                    const cellId = `cell-${row}-${col}`;
+                    const cell = document.getElementById(cellId);
+                    
+                    // Reset classes
+                    cell.classList.remove('hint', 'solved-hint');
+                    
+                    // Reset content
+                    if (originalBoard[row][col] === 0) {
+                        cell.textContent = '·';
+                        cell.classList.add('empty');
+                    } else {
+                        cell.textContent = originalBoard[row][col];
+                        cell.classList.remove('empty');
+                    }
+                }
+            }
+            
+            // Reset hint state
+            currentHintIndex = 0;
+            showingHint = false;
+            document.getElementById('hint-btn').textContent = '💡 Show Hint';
+            document.getElementById('hint-btn').disabled = false;
         }
     </script>
 </body>
@@ -348,7 +544,7 @@ def process_img(img):
                 cnts = get_cells_from_9_main_cells(new_cnts)
             else:
                 # Unable to identify main cells
-                return "-1"
+                return "-1", []
     
                 
 
@@ -397,21 +593,21 @@ def process_img(img):
     for row in board:
         for digit in row:
             sudoku_string += str(digit)
-    # return sudoku_string
     
     solver ="Strategic"
-    soving_steps = SolverUtil.solve_puzzle(
+    solving_steps = SolverUtil.solve_puzzle(
             sudoku_string,
             verbose=False,
             description='xd',
             solver_type=solver,
         )
-    return (sudoku_string,soving_steps['inserted_values'])
+    return (sudoku_string, solving_steps['inserted_values'])
 
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     sudoku_board = None
     sudoku_string = None
+    solving_steps = None
     upload_time = None
     image_info = None
     
@@ -447,8 +643,9 @@ def upload_file():
 
                 
                 # Process the image to extract sudoku
-                sudoku_string,solving_steps = process_img(cv_image)
-                if sudoku_string != "-1":
+                result = process_img(cv_image)
+                if result[0] != "-1":
+                    sudoku_string, solving_steps = result
                     sudoku_board = format_sudoku_board(sudoku_string)
                 
                 if sudoku_board is None:
@@ -475,6 +672,7 @@ def upload_file():
     return render_template_string(HTML_TEMPLATE, 
                                 sudoku_board=sudoku_board,
                                 sudoku_string=sudoku_string,
+                                solving_steps=solving_steps,
                                 upload_time=upload_time,
                                 image_info=image_info)
 
