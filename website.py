@@ -44,6 +44,17 @@ def validate_image(stream):
         return None
     return '.' + (format if format != 'jpeg' else 'jpg')
 
+def format_sudoku_board(sudoku_string):
+    """Convert sudoku string to 9x9 board format"""
+    if len(sudoku_string) != 81:
+        return None
+    
+    board = []
+    for i in range(0, 81, 9):
+        row = [int(digit) if digit != '0' else 0 for digit in sudoku_string[i:i+9]]
+        board.append(row)
+    return board
+
 # HTML template
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -51,11 +62,11 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Upload - DateTime Generator</title>
+    <title>Sudoku Board Extractor</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -144,20 +155,53 @@ HTML_TEMPLATE = '''
             font-size: 0.9em;
             color: #4a5568;
         }
-        .datetime-display {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #2d3748;
-            margin: 15px 0;
-            padding: 15px;
-            background: linear-gradient(135deg, #e6fffa, #b2f5ea);
+        .sudoku-board {
+            display: inline-block;
+            margin: 20px auto;
+            border: 3px solid #2d3748;
+            background: #2d3748;
             border-radius: 8px;
+        }
+        .sudoku-row {
+            display: flex;
+        }
+        .sudoku-cell {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #4a5568;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            background: white;
+            color: #2d3748;
+        }
+        .sudoku-cell.empty {
+            background: #f7fafc;
+            color: #a0aec0;
+        }
+        .sudoku-cell.thick-right {
+            border-right: 2px solid #2d3748;
+        }
+        .sudoku-cell.thick-bottom {
+            border-bottom: 2px solid #2d3748;
+        }
+        .sudoku-string {
+            margin: 15px 0;
+            padding: 10px;
+            background: #edf2f7;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+            color: #4a5568;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📸 Image Upload & DateTime Generator</h1>
+        <h1>🧩 Sudoku Board Extractor</h1>
         
         {% with messages = get_flashed_messages() %}
             {% if messages %}
@@ -169,12 +213,12 @@ HTML_TEMPLATE = '''
         
         <form method="POST" enctype="multipart/form-data">
             <div class="upload-section">
-                <h3>Select an image to upload</h3>
+                <h3>Select a Sudoku image to extract</h3>
                 <p>Maximum file size: 5MB<br>
                 Supported formats: PNG, JPG, JPEG, GIF, BMP, WEBP</p>
                 
                 <label for="file" class="file-label">
-                    📁 Choose Image File
+                    📁 Choose Sudoku Image
                 </label>
                 <input type="file" id="file" name="file" class="file-input" 
                        accept="image/*" onchange="showFileInfo(this)">
@@ -183,23 +227,46 @@ HTML_TEMPLATE = '''
                 
                 <br>
                 <button type="submit" id="submit-btn" class="submit-btn" disabled>
-                    🚀 Upload & Generate DateTime
+                    🚀 Extract Sudoku Board
                 </button>
             </div>
         </form>
         
-        {% if datetime_result %}
+        {% if sudoku_board %}
         <div class="result">
-            <h3>✅ Upload Successful!</h3>
-            <div class="datetime-display">
-                Generated DateTime: {{ datetime_result }}
+            <h3>✅ Sudoku Board Extracted Successfully!</h3>
+            
+            <div class="sudoku-board">
+                {% for row_idx in range(9) %}
+                <div class="sudoku-row">
+                    {% for col_idx in range(9) %}
+                    <div class="sudoku-cell 
+                        {% if sudoku_board[row_idx][col_idx] == 0 %}empty{% endif %}
+                        {% if col_idx in [2, 5] %}thick-right{% endif %}
+                        {% if row_idx in [2, 5] %}thick-bottom{% endif %}">
+                        {% if sudoku_board[row_idx][col_idx] != 0 %}
+                            {{ sudoku_board[row_idx][col_idx] }}
+                        {% else %}
+                            ·
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
             </div>
+            
+            {% if sudoku_string %}
+            <div class="sudoku-string">
+                <strong>Sudoku String:</strong><br>{{ sudoku_string }}
+            </div>
+            {% endif %}
+            
             {% if image_info %}
             <div style="margin: 15px 0; padding: 10px; background: #e6fffa; border-radius: 5px; font-size: 0.9em;">
                 {{ image_info }}
             </div>
             {% endif %}
-            <p><small>Timestamp generated at: {{ upload_time }}</small></p>
+            <p><small>Processed at: {{ upload_time }}</small></p>
         </div>
         {% endif %}
     </div>
@@ -234,14 +301,12 @@ HTML_TEMPLATE = '''
 </body>
 </html>
 '''
+
 def prosses_img(img):
     image = img
     if image.shape[1] > 700:
         image = imutils.resize(image, width=700)
     grid_coordinates = get_grid_dimensions(image)
-
-
-
 
     grid = transform_grid(image, grid_coordinates)
 
@@ -281,7 +346,7 @@ def prosses_img(img):
                 cnts = get_cells_from_9_main_cells(new_cnts)
             else:
                 # Unable to identify main cells
-                raise Exception(f"File: {file_name}, Unable to extract grid cells properly")
+                raise Exception(f"Unable to extract grid cells properly")
     
                 
 
@@ -316,11 +381,6 @@ def prosses_img(img):
 
                 # Digit present
                 if digit is not None:
-                    # Reshape to fit model input
-                    # digit = digit.reshape((1, 28, 28, 1))
-                    # Make prediction
-                    # board[row_index][box_index] = np.argmax(model.predict(digit), axis=-1)[0] + 1
-
                     # Make prediction
                     digit = Image.fromarray(digit)
                     # Reshape to fit model input, [1,28,28]
@@ -330,6 +390,7 @@ def prosses_img(img):
                     with torch.no_grad():
                         logits = model(digit_tensor)
                         board[row_index][box_index] = torch.argmax(logits, dim=1).item() + 1
+    
     sudoku_string = ''                    
     for row in board:
         for digit in row:
@@ -338,8 +399,10 @@ def prosses_img(img):
 
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
-    datetime_result = None
+    sudoku_board = None
+    sudoku_string = None
     upload_time = None
+    image_info = None
     
     if request.method == 'POST':
         # Check if file was submitted
@@ -369,20 +432,21 @@ def upload_file():
                 if cv_image is None:
                     flash('Could not process image file!')
                     return redirect(request.url)
+                
+                # Process the image to extract sudoku
                 sudoku_string = prosses_img(cv_image)
-                # Example: Get image dimensions using OpenCV
+                sudoku_board = format_sudoku_board(sudoku_string)
+                
+                if sudoku_board is None:
+                    flash('Could not extract valid sudoku board from image!')
+                    return redirect(request.url)
+                
+                # Get image dimensions
                 height, width, channels = cv_image.shape
-                image_info = f"Image loaded successfully! Dimensions: {width}x{height}, Channels: {channels}, string={sudoku_string}"
+                image_info = f"Image processed successfully! Dimensions: {width}x{height}, Channels: {channels}"
                 
-                # You can now perform any OpenCV operations on cv_image
-                # Example operations (uncomment to use):
-                # gray_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-                # blurred = cv2.GaussianBlur(cv_image, (15, 15), 0)
-                # edges = cv2.Canny(cv_image, 100, 200)
-                
-                # Generate datetime string
+                # Generate timestamp
                 now = datetime.now()
-                datetime_result = now.strftime("%Y-%m-%d %H:%M:%S")
                 upload_time = now.strftime("%B %d, %Y at %I:%M:%S %p")
                 
             except Exception as e:
@@ -394,9 +458,10 @@ def upload_file():
             return redirect(request.url)
     
     return render_template_string(HTML_TEMPLATE, 
-                                datetime_result=datetime_result, 
+                                sudoku_board=sudoku_board,
+                                sudoku_string=sudoku_string,
                                 upload_time=upload_time,
-                                image_info=image_info if 'image_info' in locals() else None)
+                                image_info=image_info)
 
 @app.errorhandler(413)
 def too_large(e):
@@ -405,7 +470,4 @@ def too_large(e):
 
 
 if __name__ == '__main__':
-    # Create uploads directory if you want to save files
-    # os.makedirs('uploads', exist_ok=True)
-    
     app.run(debug=True, host='0.0.0.0', port=5000)
